@@ -47,6 +47,16 @@ def configure_retriever(uploaded_files):
 
     return retriever
 
+class MyCallback(BaseCallbackHandler):
+
+    def on_llm_new_token(self, token, **kwargs):
+        print(f"My custom handler, token: {token}")
+
+    def on_retriever_start(self, serialized, query, **kwargs):
+        self.parent_container.status("Retrieval")
+
+    def on_retriever_end(self, documents, **kwargs):
+        self.container.status(state="complete")
 
 class StreamHandler(BaseCallbackHandler):
     def __init__(self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""):
@@ -93,7 +103,7 @@ retriever = configure_retriever(uploaded_files)
 
 # Setup memory for contextual conversation
 msgs = StreamlitChatMessageHistory()
-memory = ConversationBufferMemory(memory_key="chat_history", chat_memory=msgs, return_messages=True)
+# memory = ConversationBufferMemory(memory_key="chat_history", chat_memory=msgs, return_messages=True)
 
 # Setup LLM and QA chain
 llm = ChatOllama(
@@ -141,10 +151,11 @@ if user_query := st.chat_input(placeholder="Ask me anything!"):
     #retrieval_handler = PrintRetrievalHandler(st.container())
     #stream_handler = StreamHandler(st.empty())
     #response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
-    st_callback = StreamlitCallbackHandler(st.container())
+    #st_callback = StreamlitCallbackHandler(st.container())
+    my_handler = MyCallback(st.container())
     response = rag_chain.invoke(
         {"input": user_query, "chat_history": msgs.messages}, 
-        {"callbacks": [st_callback], 'use_chain_of_thought': True,}
+        {"callbacks": [my_handler], 'use_chain_of_thought': True,}
     )
     print(response)
     st.chat_message("assistant").write(response["answer"])
