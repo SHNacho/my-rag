@@ -14,10 +14,11 @@ from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains import ConversationalRetrievalChain
 from langchain_community.vectorstores import DocArrayInMemorySearch
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
 
 from utils import prompts
 
-st.set_page_config(page_title="LangChain: Chat with Documents", page_icon="🦉")
+st.set_page_config(page_title="Myself", page_icon="🦉")
 st.title("Chat with me")
 
 
@@ -99,32 +100,32 @@ llm = ChatOllama(
     model="mistral", temperature=0
 )
 
-qa_chain = ConversationalRetrievalChain.from_llm(
-    llm, retriever=retriever, memory=memory, verbose=True
-)
+#qa_chain = ConversationalRetrievalChain.from_llm(
+#    llm, retriever=retriever, memory=memory, verbose=True
+#)
 
 # TODO: make this block work (instead bq_chain - Deprecated ConversationalRetrievalChain)
-#contextualize_q_prompt = ChatPromptTemplate(
-#    [
-#        ("system", prompts.contextualize_q_system_prompt),
-#        MessagesPlaceholder("chat_history"),
-#        ("human", "{input}")
-#    ]
-#)
-#history_aware_retriever = create_history_aware_retriever(
-#    llm, retriever, contextualize_q_prompt
-#)
-#
-#qa_prompt = ChatPromptTemplate(
-#    [
-#        ("system", prompts.qa_system_prompt),
-#        MessagesPlaceholder("chat_history"),
-#        ("human", "{input}")
-#    ]
-#)
-#qa_chain = create_stuff_documents_chain(llm, qa_prompt)
-#
-#rag_chain = create_retrieval_chain(history_aware_retriever, qa_chain)
+contextualize_q_prompt = ChatPromptTemplate(
+    [
+        ("system", prompts.contextualize_q_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}")
+    ]
+)
+history_aware_retriever = create_history_aware_retriever(
+    llm, retriever, contextualize_q_prompt
+)
+
+qa_prompt = ChatPromptTemplate(
+    [
+        ("system", prompts.qa_system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}")
+    ]
+)
+qa_chain = create_stuff_documents_chain(llm, qa_prompt)
+
+rag_chain = create_retrieval_chain(history_aware_retriever, qa_chain)
 
 if len(msgs.messages) == 0 or st.sidebar.button("Clear message history"):
     msgs.clear()
@@ -137,10 +138,13 @@ for msg in msgs.messages:
 if user_query := st.chat_input(placeholder="Ask me anything!"):
     st.chat_message("user").write(user_query)
 
-    with st.chat_message("assistant"):
-        retrieval_handler = PrintRetrievalHandler(st.container())
-        stream_handler = StreamHandler(st.empty())
-        response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
-        #response = rag_chain.with_config(callbacks=[retrieval_handler, stream_handler]).invoke(
-        #    {"input": user_query, "chat_history": msgs.messages}, 
-        #)
+    #retrieval_handler = PrintRetrievalHandler(st.container())
+    #stream_handler = StreamHandler(st.empty())
+    #response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
+    st_callback = StreamlitCallbackHandler(st.container())
+    response = rag_chain.invoke(
+        {"input": user_query, "chat_history": msgs.messages}, 
+        {"callbacks": [st_callback], 'use_chain_of_thought': True,}
+    )
+    print(response)
+    st.chat_message("assistant").write(response["answer"])
