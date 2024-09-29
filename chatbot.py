@@ -1,20 +1,18 @@
+import json
 import os
 import tempfile
 import streamlit as st
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_models import ChatOllama
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.memory import ConversationBufferMemory
+from langchain_community.document_loaders import PyPDFLoader, UnstructuredMarkdownLoader
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_community.embeddings import SentenceTransformerEmbeddings 
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain.chains.history_aware_retriever import create_history_aware_retriever
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains.retrieval import create_retrieval_chain
-from langchain.chains import ConversationalRetrievalChain
 from langchain_community.vectorstores import DocArrayInMemorySearch
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
 
 from utils import prompts
 
@@ -31,7 +29,10 @@ def configure_retriever(uploaded_files):
         temp_filepath = os.path.join(temp_dir.name, file.name)
         with open(temp_filepath, "wb") as f:
             f.write(file.getvalue())
-        loader = PyPDFLoader(temp_filepath)
+        if temp_filepath.endswith('.pdf'):
+            loader = PyPDFLoader(temp_filepath)
+        elif temp_filepath.endswith('.md'):
+            loader = UnstructuredMarkdownLoader(temp_filepath)
         docs.extend(loader.load())
 
     # Split documents
@@ -47,16 +48,27 @@ def configure_retriever(uploaded_files):
 
     return retriever
 
-class MyCallback(BaseCallbackHandler):
-
-    def on_llm_new_token(self, token, **kwargs):
-        print(f"My custom handler, token: {token}")
+class LogsCallback(BaseCallbackHandler):
 
     def on_retriever_start(self, serialized, query, **kwargs):
-        self.parent_container.status("Retrieval")
+        print("Question: ", query)
+        print("Retrieving documents ...")
 
     def on_retriever_end(self, documents, **kwargs):
-        self.container.status(state="complete")
+        retrieved_docs = {}
+        for idx, doc in enumerate(documents):
+            source = os.path.basename(doc.metadata["source"])
+            retrieved_docs[idx] = {
+                "source": source,
+                "content": doc.page_content
+            }
+        #print("Retrieved documents:")
+        #print(json.dumps(retrieved_docs, indent=4))
+
+    def on_llm_start(self, serialized: dict, prompts: list, **kwargs):
+        print("Prompts: ", prompts)
+
+
 
 class StreamHandler(BaseCallbackHandler):
     def __init__(self, container: st.delta_generator.DeltaGenerator, initial_text: str = ""):
@@ -93,7 +105,7 @@ class PrintRetrievalHandler(BaseCallbackHandler):
 
 
 uploaded_files = st.sidebar.file_uploader(
-    label="Upload PDF files", type=["pdf"], accept_multiple_files=True
+    label="Upload data files", type=["pdf", "md"], accept_multiple_files=True
 )
 if not uploaded_files:
     st.info("Please upload PDF documents to continue.")
@@ -102,7 +114,7 @@ if not uploaded_files:
 retriever = configure_retriever(uploaded_files)
 
 # Setup memory for contextual conversation
-msgs = StreamlitChatMessageHistory()
+msgs = StreamlitChatMessageHistory(key="chat_history")
 # memory = ConversationBufferMemory(memory_key="chat_history", chat_memory=msgs, return_messages=True)
 
 # Setup LLM and QA chain
@@ -110,11 +122,6 @@ llm = ChatOllama(
     model="mistral", temperature=0
 )
 
-#qa_chain = ConversationalRetrievalChain.from_llm(
-#    llm, retriever=retriever, memory=memory, verbose=True
-#)
-
-# TODO: make this block work (instead bq_chain - Deprecated ConversationalRetrievalChain)
 contextualize_q_prompt = ChatPromptTemplate(
     [
         ("system", prompts.contextualize_q_system_prompt),
@@ -147,15 +154,12 @@ for msg in msgs.messages:
 
 if user_query := st.chat_input(placeholder="Ask me anything!"):
     st.chat_message("user").write(user_query)
+    msgs.add_user_message(user_query)
 
-    #retrieval_handler = PrintRetrievalHandler(st.container())
-    #stream_handler = StreamHandler(st.empty())
-    #response = qa_chain.run(user_query, callbacks=[retrieval_handler, stream_handler])
-    #st_callback = StreamlitCallbackHandler(st.container())
-    my_handler = MyCallback(st.container())
+    logs_callback = LogsCallback()
     response = rag_chain.invoke(
-        {"input": user_query, "chat_history": msgs.messages}, 
-        {"callbacks": [my_handler], 'use_chain_of_thought': True,}
+        {"input": user_query, "chat_history": msgs}, 
+        {"callbacks": [logs_callback]}
     )
-    print(response)
     st.chat_message("assistant").write(response["answer"])
+    msgs.add_ai_message(response["answer"])
