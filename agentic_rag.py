@@ -1,9 +1,7 @@
-import os
 import streamlit as st
 from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
-from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 
@@ -23,6 +21,7 @@ files = ["data/my-cv.md", "data/my-hobbies.md"]
 
 @st.cache_resource(ttl="1h")
 def configure_retriever(files):
+    print("Embedding")
     # Read documents
     docs = []
     for file_path in files:
@@ -35,6 +34,7 @@ def configure_retriever(files):
 
     vectorstore = Chroma.from_documents(
         documents=splits,
+        persist_directory="chroma",
         collection_name="rag-chroma",
         embedding=OpenAIEmbeddings()
     )
@@ -59,7 +59,7 @@ tools = [retriever_tool]
 from typing import Annotated, Sequence
 from typing_extensions import TypedDict
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 
 from langgraph.graph.message import add_messages
 
@@ -75,7 +75,7 @@ from typing import Annotated, Literal, Sequence
 from typing_extensions import TypedDict
 
 from langchain import hub
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
@@ -87,7 +87,6 @@ from langgraph.prebuilt import tools_condition
 
 ### Edges
 
-
 def grade_documents(state) -> Literal["generate", "rewrite"]:
     """
     Determines whether the retrieved documents are relevant to the question.
@@ -98,8 +97,6 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
     Returns:
         str: A decision for whether the documents are relevant or not
     """
-
-    print("---CHECK RELEVANCE---")
 
     # Data model
     class grade(BaseModel):
@@ -137,12 +134,9 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
     score = scored_result.binary_score
 
     if score == "yes":
-        print("---DECISION: DOCS RELEVANT---")
         return "generate"
 
     else:
-        print("---DECISION: DOCS NOT RELEVANT---")
-        print(score)
         return "rewrite"
 
 
@@ -160,47 +154,11 @@ def agent(state):
     Returns:
         dict: The updated state with the agent response appended to messages
     """
-    print("---CALL AGENT---")
     messages = state["messages"]
     model = ChatOpenAI(temperature=0, streaming=True, model="gpt-4o-mini")
     model = model.bind_tools(tools)
     response = model.invoke(messages)
     # We return a list, because this will get added to the existing list
-    print(response)
-    return {"messages": [response]}
-
-
-def rewrite(state):
-    """
-    Transform the query to produce a better question.
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-        dict: The updated state with re-phrased question
-    """
-
-    print("---TRANSFORM QUERY---")
-    messages = state["messages"]
-    question = messages[0].content
-
-    msg = [
-        HumanMessage(
-            content=f""" \n 
-    Look at the input and try to reason about the underlying semantic intent / meaning. \n 
-    Here is the initial question:
-    \n ------- \n
-    {question} 
-    \n ------- \n
-    Formulate an improved question: """,
-        )
-    ]
-
-    # Grader
-    model = ChatOpenAI(temperature=0, model="gpt-4o-mini", streaming=True)
-    response = model.invoke(msg)
-    print(response)
     return {"messages": [response]}
 
 
@@ -214,10 +172,8 @@ def generate(state):
     Returns:
          dict: The updated state with re-phrased question
     """
-    print("---GENERATE---")
     messages = state["messages"]
     question = messages[0].content
-    print("Messages: ", messages)
     last_message = messages[-1]
 
     docs = last_message.content
@@ -228,16 +184,11 @@ def generate(state):
     # LLM
     llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0, streaming=True)
 
-    # Post-processing
-    def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
-
     # Chain
-    rag_chain = prompt | llm | StrOutputParser()
+    rag_chain = prompt | llm
 
     # Run
-    response = rag_chain.invoke({"context": format_docs(docs), "question": question})
-    print(response)
+    response = rag_chain.invoke({"context": docs, "question": question})
     return {"messages": [response]}
 
 ##### Graph #####
@@ -252,7 +203,6 @@ workflow = StateGraph(AgentState)
 workflow.add_node("agent", agent)  # agent
 retrieve = ToolNode([retriever_tool])
 workflow.add_node("retrieve", retrieve)  # retrieval
-workflow.add_node("rewrite", rewrite)  # Re-writing the question
 workflow.add_node(
     "generate", generate
 )  # Generating a response after we know the documents are relevant
@@ -271,14 +221,8 @@ workflow.add_conditional_edges(
     },
 )
 
-# Edges taken after the `action` node is called.
-workflow.add_conditional_edges(
-    "retrieve",
-    # Assess agent decision
-    grade_documents,
-)
+workflow.add_edge("retrieve", "generate")
 workflow.add_edge("generate", END)
-workflow.add_edge("rewrite", "agent")
 
 # Compile
 graph = workflow.compile()
@@ -306,17 +250,26 @@ def display_chat():
             st.write(f"**Bot:** {content}")
 
     # Input box for user query
-    user_input = st.text_input("Ask Ignacio a question:")
+    user_input = st.chat_input("Ask Ignacio a question:")
     if user_input:
         st.session_state.messages.append(("user", user_input))
+        st.write(f"**User:** {user_input}")
 
         inputs = {"messages": [("user", user_input)]}
+        print("-------New------")
         for output in graph.stream(inputs):
             for key, value in output.items():
-                print(key)
-                if key == "generate" or key == "agent":
-                    st.session_state.messages.append(("bot", value["messages"][0].content))
-                    st.write(f"**Bot:** {value["messages"][0].content}")
+                print("Key: ",key)
+                print("Value: ",value)
+                print('----------------')
+                message = value["messages"][0]
+                if key == "generate": #or key == "agent":
+                    st.session_state.messages.append(("bot", message.content))
+                    st.write(f"**Bot:** {message.content}")
+                elif key == "agent" and message.content != '':
+                    st.session_state.messages.append(("bot", message.content))
+                    st.write(f"**Bot:** {message.content}")
+
 
 # Call the display_chat function to render the chat
 st.title("LangGraph Chatbot")
