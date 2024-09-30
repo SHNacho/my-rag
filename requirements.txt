@@ -4,4 +4,10 @@ langchain-community
 sentence-transformers
 pypdf
 docarray
+langchain-openai
+langgraph
+unstructured
+markdown
+chromadb
+python-dotenv
 
