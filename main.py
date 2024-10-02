@@ -1,5 +1,20 @@
+from dotenv import load_dotenv
+load_dotenv()
+
+#### Streamlit Setup #####
 import streamlit as st
+
+# Streamlit page configuration
+st.set_page_config(page_title="LangGraph Chatbot", layout="centered")
+
+# Set up session state
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
 from agent.rag_agent import graph
+
+
+
 
 ##### Streamlit Chat Interface #####
 def display_chat():
@@ -21,7 +36,8 @@ def display_chat():
         st.chat_message("user").write(user_input)
 
         inputs = {"messages": [("user", user_input)]}
-        for output in graph.stream(inputs):
+        config = {"configurable": {"thread_id": "1"}}
+        for output in graph.stream(inputs, config=config):
             for key, value in output.items():
                 message = value["messages"][0]
                 if key == "generate": #or key == "agent":
