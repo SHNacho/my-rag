@@ -1,0 +1,21 @@
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/healthy-icon-393315/my-rag/my-rag', '.']
+  # Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/healthy-icon-393315/my-rag/my-rag:latest']
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'my-rag'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/healthy-icon-393315/my-rag/my-rag:latest'
+      - '--region'
+      - 'us-central1'
+      - '--set-env-vars=[MODE=PRODUCTION]'
+images:
+  - 'us-central1-docker.pkg.dev/healthy-icon-393315/my-rag/my-rag:latest'
