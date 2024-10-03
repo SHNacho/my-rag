@@ -1,10 +1,13 @@
+import os
+import streamlit as st
+
 from dotenv import load_dotenv
+
+from agent.RAG import RagAgent 
+
+
 if not load_dotenv():
     load_dotenv('/etc/secrets/env/.env')
-
-
-#### Streamlit Setup #####
-import streamlit as st
 
 # Streamlit page configuration
 st.set_page_config(page_title="LangGraph Chatbot", layout="centered")
@@ -13,13 +16,15 @@ st.set_page_config(page_title="LangGraph Chatbot", layout="centered")
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 
-from agent.rag_agent import graph
-
-
-
+files = []
+data_path = "data"
+if not os.path.isdir(data_path):
+    data_path = "/etc/data"
+for file in os.listdir(data_path):
+    files.append(os.path.join(data_path, file))
 
 ##### Streamlit Chat Interface #####
-def display_chat():
+def display_chat(graph):
     avatars = {"user": "user", "bot": "assistant"}
 
     if len(st.session_state.messages) == 0:
@@ -52,4 +57,7 @@ def display_chat():
 
 # Call the display_chat function to render the chat
 st.title("LangGraph Chatbot")
-display_chat()
+rag = RagAgent()
+rag.init_retriever(files)
+graph = rag.get_graph()
+display_chat(graph)
