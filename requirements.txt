@@ -1,9 +1,7 @@
 streamlit
 langchain
 langchain-community
-sentence-transformers
 pypdf
-docarray
 langchain-openai
 langgraph
 unstructured
