@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
-load_dotenv()
+if not load_dotenv():
+    load_dotenv('/etc/secrets/env/.env')
+
 
 #### Streamlit Setup #####
 import streamlit as st

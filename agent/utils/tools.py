@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.tools.retriever import create_retriever_tool
@@ -7,7 +8,17 @@ from langchain_openai import OpenAIEmbeddings
 
 
 ##### Retriever #####
-files = ["data/my-cv.md", "data/my-hobbies.md"]
+data_path = "data"
+if not os.path.isdir(data_path):
+    data_path = "/etc/data"
+
+files = []
+for file in os.listdir(data_path):
+    files.append(os.path.join(data_path, file))
+
+print(files)
+    
+
 
 @st.cache_resource(ttl="1h")
 def configure_retriever(files):
