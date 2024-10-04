@@ -8,4 +8,4 @@ unstructured
 markdown
 chromadb
 python-dotenv
-
+google-cloud-logging
