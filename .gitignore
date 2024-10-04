@@ -5,3 +5,4 @@ data
 .env
 chroma
 secrets
+__pycache__
