@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from typing import Literal, Annotated, Sequence
 from typing_extensions import TypedDict
 
+from utils.logger import logger
 
 class RagAgent():
 
@@ -60,7 +61,7 @@ class RagAgent():
         )
     
         # Define retriever
-        _self.retriever = vectorstore.as_retriever()
+        _self.retriever = vectorstore.as_retriever(k=2)
         _self.retriever_tool = create_retriever_tool(
             _self.retriever,
             "retrieve_ignacio_information",
@@ -89,10 +90,20 @@ class RagAgent():
         messages = state["messages"]
         if len(messages) == 1 :
             messages.insert(0, system)
+
+        # We have 3 options for the messages to feed the model:
+        #   1. Just system prompt and question: Cheaper but more retrieval operations
+        #   2. All memory messages: Expensive (because include all retrieved 
+        #   documents during conversation) but reduce the retrieval operations.
+        #   Can be noisy. 
+        #   3. System, conversation without documents and question
+        # Here we select the cheaper one.
+        # TODO figure out how to implement the 3rd option
+        feed_messages = [messages[0], messages[-1]]
     
         model = ChatOpenAI(temperature=0.4, streaming=True, model=self.model)
         model = model.bind_tools(self.tools)
-        response = model.invoke(messages)
+        response = model.invoke(feed_messages)
         # We return a list, because this will get added to the existing list
         return {"messages": [response],
                 "question": messages[-1].content
@@ -112,9 +123,9 @@ class RagAgent():
         messages = state["messages"]
         question = state["question"]
         last_message = messages[-1]
-        print(messages)
     
         docs = last_message.content
+        logger.log_text("Documents: " + docs)
     
         # Prompt
         prompt = hub.pull("rlm/rag-prompt")

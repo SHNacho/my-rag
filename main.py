@@ -4,10 +4,10 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from agent.RAG import RagAgent 
-
+from utils.logger import logger
 
 if not load_dotenv():
-    load_dotenv('/etc/secrets/env/.env')
+    load_dotenv("/etc/secrets/env/.env")
 
 # Streamlit page configuration
 st.set_page_config(page_title="LangGraph Chatbot", layout="centered")
@@ -39,6 +39,7 @@ def display_chat(graph):
     # Input box for user query
     user_input = st.chat_input("Ask anything about Ignacio:")
     if user_input:
+        logger.log_text(user_input)
         st.session_state.messages.append(("user", user_input))
         st.chat_message("user").write(user_input)
 
@@ -53,6 +54,7 @@ def display_chat(graph):
                 elif key == "agent" and message.content != '':
                     st.session_state.messages.append(("bot", message.content))
                     st.chat_message("assistant").write(message.content)
+                logger.log_text(st.session_state.messages[-1][1])
 
 
 # Call the display_chat function to render the chat
