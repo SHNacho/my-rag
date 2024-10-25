@@ -3,6 +3,7 @@ langchain
 langchain-community
 pypdf
 langchain-openai
+langchain-pinecone
 langgraph
 unstructured
 markdown
