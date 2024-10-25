@@ -1,20 +1,16 @@
 import streamlit as st
 
 from langchain import hub
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.tools.retriever import create_retriever_tool
-from langchain_community.document_loaders import UnstructuredMarkdownLoader
-from langchain_community.vectorstores import Chroma
+from langchain_pinecone import PineconeVectorStore
 from langchain_core.prompts import PromptTemplate
 from langchain_core.messages import BaseMessage
-from langchain_openai import (
-    ChatOpenAI,
-    OpenAIEmbeddings
-)
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph, START
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+from pinecone import Pinecone
 from pydantic import BaseModel, Field
 from typing import Literal, Annotated, Sequence
 from typing_extensions import TypedDict
@@ -39,27 +35,12 @@ class RagAgent():
 
     ### TOOLS ###
     @st.cache_resource(ttl="1h")
-    def init_retriever(_self, files):
+    def init_retriever(_self):
         # Read documents
-        docs = []
-        for file_path in files:
-            loader = UnstructuredMarkdownLoader(file_path)
-            docs.extend(loader.load())
-    
-        # Split documents
-        text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-            chunk_size=500, 
-            chunk_overlap=0
-        )
-        splits = text_splitter.split_documents(docs)
-    
-        vectorstore = Chroma.from_documents(
-            documents=splits,
-            persist_directory="chroma",
-            collection_name="rag-chroma",
-            embedding=OpenAIEmbeddings()
-        )
-    
+        pc = Pinecone()
+        index = pc.Index("my-rag")
+        vectorstore = PineconeVectorStore(index=index, embedding=OpenAIEmbeddings())
+
         # Define retriever
         _self.retriever = vectorstore.as_retriever(k=2)
         _self.retriever_tool = create_retriever_tool(
