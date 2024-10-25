@@ -13,7 +13,7 @@ if not load_dotenv():
     load_dotenv("/etc/secrets/env/.env")
 
 # page configuration
-st.set_page_config(page_title="LangGraph Chatbot", layout="centered")
+st.set_page_config(page_title="Ignacio's Chatbot", layout="centered", page_icon="🤖")
 
 # Set up session state
 if 'messages' not in st.session_state:
@@ -58,7 +58,7 @@ def display_chat(graph):
                 logger.log_text(st.session_state.messages[-1][1])
 
 # main
-st.title("LangGraph Chatbot")
+st.title("Ignacio's Chatbot")
 rag = RagAgent()
 rag.init_retriever() 
 graph = rag.get_graph() # get the agent graph
