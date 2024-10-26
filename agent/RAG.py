@@ -4,8 +4,9 @@ from langchain import hub
 from langchain.tools.retriever import create_retriever_tool
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.prompts import PromptTemplate
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage, RemoveMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph, START
 from langgraph.graph.message import add_messages
@@ -51,6 +52,36 @@ class RagAgent():
         _self.tools.append(_self.retriever_tool)
 
     ### NODES ###
+    def filter(self, state):
+        """
+        Filter the messages deleting tool calls and documents retrieved
+
+        Args:
+            state (messages): The current state
+        
+        Returns:
+            dict: The updated state
+        """
+        print("===Filter===")
+        print(state)
+        remove_ids = [m.id for m in state["messages"] if isinstance(m, ToolMessage) or not m.content]
+        delete_messages = [RemoveMessage(id=id) for id in remove_ids]
+        return {"messages": delete_messages}
+    
+    def contextualize_question(self, state):
+        prompt = (
+            "Given the above conversation, reformulate the last question for a "
+            "better understanding without the context."
+        )
+        message = HumanMessage(content=prompt)
+
+        llm = ChatOpenAI(temperature=0.4, streaming=True, model=self.model)
+        contextualized_question = llm.invoke(state.messages + message)
+
+        return {
+            "question": contextualized_question
+        }
+
     def agent(self, state):
         """
         Invokes the agent model to generate a response based on the current state. Given
@@ -62,13 +93,10 @@ class RagAgent():
         Returns:
             dict: The updated state with the agent response appended to messages
         """
-        system = {
-            "role": "system",
-            "content": (
-                "You are Ignacio's assistant. You only answer question about him."
-            )
-        }
+        print("===Agent===")
+        system = SystemMessage(content="You are Ignacio's assistant. You only answer question about him.")
         messages = state["messages"]
+        question = state["question"]
         if len(messages) == 1 :
             messages.insert(0, system)
 
@@ -80,15 +108,16 @@ class RagAgent():
         #   3. System, conversation without documents and question
         # Here we select the cheaper one.
         # TODO figure out how to implement the 3rd option
-        feed_messages = [messages[0], messages[-1]]
+        feed_messages = [messages[0], question]
     
         model = ChatOpenAI(temperature=0.4, streaming=True, model=self.model)
         model = model.bind_tools(self.tools)
         response = model.invoke(feed_messages)
         # We return a list, because this will get added to the existing list
-        return {"messages": [response],
-                "question": messages[-1].content
-                }
+        return {
+            "messages": [response],
+            "question": messages[-1].content
+        }
     
     
     def generate(self, state):
@@ -175,20 +204,21 @@ class RagAgent():
             return "rewrite"
 
     @st.cache_resource(ttl="1h")
-    def get_graph(_self):
+    def get_graph(_self) -> CompiledStateGraph:
         assert _self.retriever, "Retriever has not been initialized"
         # Define a new graph
         workflow = StateGraph(_self.AgentState)
         
         # Define the nodes we will cycle between
+        workflow.add_node("filter", _self.filter) # filter state
         workflow.add_node("agent", _self.agent)  # agent
         retrieve = ToolNode([_self.retriever_tool])
         workflow.add_node("retrieve", retrieve)  # retrieval
-        workflow.add_node(
-            "generate", _self.generate
-        )  # Generating a response
-        workflow.add_edge(START, "agent")
-        
+        workflow.add_node("generate", _self.generate)  # Generating a response
+
+        # Define edges
+        workflow.add_edge(START, "filter")
+        workflow.add_edge("filter", "agent")
         # Decide whether to retrieve
         workflow.add_conditional_edges(
             "agent",
@@ -200,7 +230,6 @@ class RagAgent():
                 END: END,
             },
         )
-        
         workflow.add_edge("retrieve", "generate")
         workflow.add_edge("generate", END)
         

@@ -1,8 +1,10 @@
 # ----- #
 import os
 import streamlit as st
+import random
 
 from dotenv import load_dotenv
+from langgraph.graph.state import CompiledStateGraph
 
 from agent.RAG import RagAgent 
 from utils.logger import logger
@@ -14,6 +16,9 @@ if not load_dotenv():
 
 # page configuration
 st.set_page_config(page_title="Ignacio's Chatbot", layout="centered", page_icon="🤖")
+if 'thread' not in st.session_state:
+    st.session_state.thread = random.randint(1, 4999999)
+    print("New user with thread ", st.session_state.thread)
 
 # Set up session state
 if 'messages' not in st.session_state:
@@ -21,7 +26,7 @@ if 'messages' not in st.session_state:
 
 
 ##### Streamlit Chat Interface #####
-def display_chat(graph):
+def display_chat(graph: CompiledStateGraph):
     avatars = {"user": "user", "bot": "assistant"}
 
     if len(st.session_state.messages) == 0:
@@ -36,26 +41,19 @@ def display_chat(graph):
     # Input box for user query
     if user_input := st.chat_input("Ask anything about Ignacio:"):
 
-        logger.log_text(user_input) # log user input
         st.session_state.messages.append(("user", user_input))
         st.chat_message("user").write(user_input)
 
         inputs = {"messages": [("user", user_input)]}
-        config = {"configurable": {"thread_id": "1"}}
+        config = {"configurable": {"thread_id": st.session_state.thread}}
 
-        for output in graph.stream(inputs, config=config):
-            for key, value in output.items():
+        output = graph.invoke(inputs, config=config)
+        message = output['messages'][-1]
+        st.session_state.messages.append(("bot", message.content))
+        st.chat_message("assistant").write(message.content)
 
-                message = value["messages"][0]
-
-                if key == "generate": #or key == "agent":
-                    st.session_state.messages.append(("bot", message.content))
-                    st.chat_message("assistant").write(message.content)
-                elif key == "agent" and message.content != '':
-                    st.session_state.messages.append(("bot", message.content))
-                    st.chat_message("assistant").write(message.content)
-
-                logger.log_text(st.session_state.messages[-1][1])
+        logger.log_text(user_input) # log user input
+        logger.log_text(message.content) # log chatbot output
 
 # main
 st.title("Ignacio's Chatbot")
