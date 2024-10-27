@@ -32,6 +32,7 @@ class RagAgent():
         self.retriever = None
         self.retriever_tool = None
         self.model = openai_model
+        self.llm = ChatOpenAI(temperature=0.4, streaming=True, model=self.model)
         self.graph = None
 
     ### TOOLS ###
@@ -54,7 +55,7 @@ class RagAgent():
     ### NODES ###
     def filter(self, state):
         """
-        Filter the messages deleting tool calls and documents retrieved
+        Filter the messages deleting tool calls and documents retrieved.
 
         Args:
             state (messages): The current state
@@ -69,14 +70,24 @@ class RagAgent():
         return {"messages": delete_messages}
     
     def contextualize_question(self, state):
+        """
+        Give context to the question for a better understanding
+
+        Args:
+            state (messages): The current state
+
+        Returns:
+            dict: The contextualized question
+        """
+        print("===Contextualize===")
         prompt = (
             "Given the above conversation, reformulate the last question for a "
-            "better understanding without the context."
+            "better understanding without the context:"
         )
-        message = HumanMessage(content=prompt)
+        messages = state["messages"] + [HumanMessage(content=prompt)]
 
-        llm = ChatOpenAI(temperature=0.4, streaming=True, model=self.model)
-        contextualized_question = llm.invoke(state.messages + message)
+        contextualized_question = self.llm.invoke(messages)
+        print(contextualized_question)
 
         return {
             "question": contextualized_question
@@ -95,10 +106,11 @@ class RagAgent():
         """
         print("===Agent===")
         system = SystemMessage(content="You are Ignacio's assistant. You only answer question about him.")
-        messages = state["messages"]
         question = state["question"]
-        if len(messages) == 1 :
-            messages.insert(0, system)
+        messages = state["messages"]
+
+        # if len(messages) == 1 :
+        #     messages.insert(0, system)
 
         # We have 3 options for the messages to feed the model:
         #   1. Just system prompt and question: Cheaper but more retrieval operations
@@ -106,9 +118,9 @@ class RagAgent():
         #   documents during conversation) but reduce the retrieval operations.
         #   Can be noisy. 
         #   3. System, conversation without documents and question
-        # Here we select the cheaper one.
+        # Here we select the 3rd. The state has been filtered previously
         # TODO figure out how to implement the 3rd option
-        feed_messages = [messages[0], question]
+        feed_messages = [system, messages[:-1], question]
     
         model = ChatOpenAI(temperature=0.4, streaming=True, model=self.model)
         model = model.bind_tools(self.tools)
@@ -116,20 +128,20 @@ class RagAgent():
         # We return a list, because this will get added to the existing list
         return {
             "messages": [response],
-            "question": messages[-1].content
         }
     
     
     def generate(self, state):
         """
-        Generate answer
+        Generate answer with the documents context.
     
         Args:
             state (messages): The current state
     
         Returns:
-             dict: The updated state with re-phrased question
+             dict: The updated state with the response
         """
+        print("===Generate===")
         messages = state["messages"]
         question = state["question"]
         last_message = messages[-1]
@@ -140,11 +152,8 @@ class RagAgent():
         # Prompt
         prompt = hub.pull("rlm/rag-prompt")
     
-        # LLM
-        llm = ChatOpenAI(model_name=self.model, temperature=0.4, streaming=True)
-    
         # Chain
-        rag_chain = prompt | llm
+        rag_chain = prompt | self.llm
     
         # Run
         response = rag_chain.invoke({"context": docs, "question": question})
@@ -211,6 +220,7 @@ class RagAgent():
         
         # Define the nodes we will cycle between
         workflow.add_node("filter", _self.filter) # filter state
+        workflow.add_node("contextualize", _self.contextualize_question)
         workflow.add_node("agent", _self.agent)  # agent
         retrieve = ToolNode([_self.retriever_tool])
         workflow.add_node("retrieve", retrieve)  # retrieval
@@ -218,7 +228,8 @@ class RagAgent():
 
         # Define edges
         workflow.add_edge(START, "filter")
-        workflow.add_edge("filter", "agent")
+        workflow.add_edge("filter", "contextualize")
+        workflow.add_edge("contextualize", "agent")
         # Decide whether to retrieve
         workflow.add_conditional_edges(
             "agent",
