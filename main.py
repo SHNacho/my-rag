@@ -1,5 +1,4 @@
 # ----- #
-import os
 import streamlit as st
 import random
 
@@ -47,6 +46,7 @@ def display_chat(graph: CompiledStateGraph):
         inputs = {"messages": [("user", user_input)]}
         config = {"configurable": {"thread_id": st.session_state.thread}}
 
+        print(inputs)
         output = graph.invoke(inputs, config=config)
         message = output['messages'][-1]
         st.session_state.messages.append(("bot", message.content))
